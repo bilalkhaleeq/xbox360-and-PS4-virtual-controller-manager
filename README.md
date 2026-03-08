@@ -41,7 +41,7 @@ Ensure you have Python installed and added to your system PATH.
 
 1. **Launch the app:**
    ```bash
-   python virtual_controller_gui.py
+   python virtual_controller.py
    ```
 2. **Add Controllers:** Click the `+ ADD NEW CONTROLLER` button to create a new slot.
 3. **Connect:** Click the blue `Connect` button. It will turn green when active. 

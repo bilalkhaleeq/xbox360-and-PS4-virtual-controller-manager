@@ -2,6 +2,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 import vgamepad as vg
 import sys
+import time
 
 # Set Appearance and Theme
 ctk.set_appearance_mode("Dark")  # Dark mode by default
@@ -21,7 +22,7 @@ class ControllerRow(ctk.CTkFrame):
         self.info_label = ctk.CTkLabel(self, text=f"🎮 Controller {index + 1}", font=("Segoe UI", 16, "bold"), width=150, anchor='w')
         self.info_label.pack(side='left', padx=20, pady=15)
 
-        # Right: Buttons (Remove first, then Connect/Disconnect)
+        # Right: Buttons (Remove, Connect/Disconnect)
         self.btn_remove = ctk.CTkButton(self, text="Remove", width=80, height=32, 
                                         fg_color="#d32f2f", hover_color="#b71c1c",
                                         command=self.remove)
@@ -36,19 +37,56 @@ class ControllerRow(ctk.CTkFrame):
         if not self.is_connected:
             try:
                 self.gamepad = vg.VX360Gamepad()
+                
+                # WARM-UP SEQUENCE: Force driver to see a state change
+                # 1. Start at absolute zero
+                self.gamepad.left_joystick(0, 0)
+                self.gamepad.right_joystick(0, 0)
+                self.gamepad.update()
+                time.sleep(0.05)
+                
+                # 2. Briefly send a tiny pulse to "wake up" the report
+                self.gamepad.left_joystick(1, 1)
+                self.gamepad.update()
+                time.sleep(0.05)
+                
+                # 3. Final Reset to absolute zero
+                self.gamepad.reset()
+                self.gamepad.left_joystick(0, 0)
+                self.gamepad.right_joystick(0, 0)
+                self.gamepad.update()
+                
                 self.is_connected = True
                 self.btn_toggle.configure(text="Disconnect", fg_color="#388E3C", hover_color="#2E7D32")
                 self.btn_remove.configure(state="disabled", fg_color="#555555")
-                print(f"[INFO] Controller {self.index + 1} active.")
+                
+                print(f"[INFO] Controller {self.index + 1} connected. Warm-up sequence complete.")
+                self.start_heartbeat()
             except Exception as e:
                 messagebox.showerror("Driver Error", f"Failed to connect controller: {e}\n\nEnsure ViGEmBus driver is installed.")
         else:
+            self.is_connected = False
+            if self.gamepad:
+                self.gamepad.reset()
+                self.gamepad.update()
             del self.gamepad
             self.gamepad = None
-            self.is_connected = False
             self.btn_toggle.configure(text="Connect", fg_color="#1976D2", hover_color="#1565C0")
             self.btn_remove.configure(state="normal", fg_color="#d32f2f")
-            print(f"[INFO] Controller {self.index + 1} inactive.")
+            print(f"[INFO] Controller {self.index + 1} disconnected.")
+
+    def start_heartbeat(self):
+        if self.is_connected and self.gamepad:
+            try:
+                # Continuously re-apply absolute zero
+                self.gamepad.left_joystick(0, 0)
+                self.gamepad.right_joystick(0, 0)
+                self.gamepad.update()
+                
+                # Repeat every 1 second for higher persistence
+                self.after(1000, self.start_heartbeat)
+            except Exception as e:
+                print(f"[ERROR] Heartbeat failed for Controller {self.index + 1}: {e}")
 
     def remove(self):
         if self.is_connected:
