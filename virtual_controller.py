@@ -3,38 +3,155 @@ from tkinter import messagebox
 import vgamepad as vg
 import sys
 import time
+import keyboard  # New dependency for global hooks
 
 # Set Appearance and Theme
-ctk.set_appearance_mode("Dark")  # Dark mode by default
-ctk.set_default_color_theme("blue")  # Modern blue accent
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue")
+
+# Constants for Mappable Actions
+XBOX_ACTIONS = {
+    "A Button": vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
+    "B Button": vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
+    "X Button": vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
+    "Y Button": vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,
+    "LB (Shoulder)": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
+    "RB (Shoulder)": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
+    "Start": vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
+    "Back": vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
+    "Left Stick Click": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,
+    "Right Stick Click": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,
+    "DPAD Up": "DPAD_UP",
+    "DPAD Down": "DPAD_DOWN",
+    "DPAD Left": "DPAD_LEFT",
+    "DPAD Right": "DPAD_RIGHT"
+}
+
+PS4_ACTIONS = {
+    "Cross": vg.DS4_BUTTONS.DS4_BUTTON_CROSS,
+    "Circle": vg.DS4_BUTTONS.DS4_BUTTON_CIRCLE,
+    "Square": vg.DS4_BUTTONS.DS4_BUTTON_SQUARE,
+    "Triangle": vg.DS4_BUTTONS.DS4_BUTTON_TRIANGLE,
+    "L1 (Shoulder)": vg.DS4_BUTTONS.DS4_BUTTON_SHOULDER_LEFT,
+    "R1 (Shoulder)": vg.DS4_BUTTONS.DS4_BUTTON_SHOULDER_RIGHT,
+    "Options": vg.DS4_BUTTONS.DS4_BUTTON_OPTIONS,
+    "Share": vg.DS4_BUTTONS.DS4_BUTTON_SHARE,
+    "L3 (Stick Click)": vg.DS4_BUTTONS.DS4_BUTTON_THUMB_LEFT,
+    "R3 (Stick Click)": vg.DS4_BUTTONS.DS4_BUTTON_THUMB_RIGHT,
+    "PS Button": ("special", vg.DS4_SPECIAL_BUTTONS.DS4_SPECIAL_BUTTON_PS),
+    "Touchpad": ("special", vg.DS4_SPECIAL_BUTTONS.DS4_SPECIAL_BUTTON_TOUCHPAD),
+    "DPAD Up": "DPAD_UP",
+    "DPAD Down": "DPAD_DOWN",
+    "DPAD Left": "DPAD_LEFT",
+    "DPAD Right": "DPAD_RIGHT"
+}
+
+class MappingRow(ctk.CTkFrame):
+    def __init__(self, master, action_name, current_key, bind_callback, clear_callback):
+        super().__init__(master, fg_color="transparent")
+        self.action_name = action_name
+        self.bind_callback = bind_callback
+        self.clear_callback = clear_callback
+
+        self.label = ctk.CTkLabel(self, text=action_name, font=("Segoe UI", 12), width=120, anchor='w')
+        self.label.pack(side='left', padx=10)
+
+        # Container for the button and the clear icon
+        self.btn_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.btn_container.pack(side='right', padx=10)
+
+        self.btn_bind = ctk.CTkButton(self.btn_container, text=current_key if current_key else "None", 
+                                      width=150, height=28, fg_color="#333333", 
+                                      hover_color="#444444",
+                                      command=self.start_binding)
+        self.btn_bind.pack(side='left', padx=(0, 5), pady=2)
+
+        self.btn_clear = ctk.CTkButton(self.btn_container, text="×", width=28, height=28,
+                                       fg_color="#333333", hover_color="#8B0000",
+                                       font=("Segoe UI", 18, "bold"),
+                                       command=self.clear_binding)
+        self.btn_clear.pack(side='left')
+
+    def start_binding(self):
+        self.btn_bind.configure(text="Press any key...", fg_color="#E65100")
+        self.master.after(10, lambda: self.bind_callback(self.action_name, self.update_ui))
+
+    def clear_binding(self):
+        self.clear_callback(self.action_name)
+        self.update_ui("None")
+
+    def update_ui(self, key_name):
+        self.btn_bind.configure(text=key_name, fg_color="#333333")
 
 class ControllerRow(ctk.CTkFrame):
-    def __init__(self, master, index, remove_callback, controller_type="Xbox"):
+    def __init__(self, master, index, remove_callback, check_binding_callback, controller_type="Xbox"):
         super().__init__(master, corner_radius=10)
         self.index = index
         self.remove_callback = remove_callback
+        self.check_binding_callback = check_binding_callback
         self.controller_type = controller_type
         self.gamepad = None
         self.is_connected = False
+        self.mappings = {} # action_name -> key_name
+        self.is_mapping_visible = False
 
         self.pack(fill='x', padx=20, pady=10)
 
-        # Left: Controller Info
-        self.info_label = ctk.CTkLabel(self, text="", 
-                                        font=("Segoe UI", 16, "bold"), width=200, anchor='w')
+        # Top Bar Container
+        self.top_bar = ctk.CTkFrame(self, fg_color="transparent")
+        self.top_bar.pack(fill='x')
+
+        self.info_label = ctk.CTkLabel(self.top_bar, text="", font=("Segoe UI", 16, "bold"), width=200, anchor='w')
         self.info_label.pack(side='left', padx=20, pady=15)
         self.update_label(index)
 
-        # Right: Buttons (Remove, Connect/Disconnect)
-        self.btn_remove = ctk.CTkButton(self, text="Remove", width=80, height=32, 
-                                        fg_color="#d32f2f", hover_color="#b71c1c",
-                                        command=self.remove)
+        self.btn_remove = ctk.CTkButton(self.top_bar, text="Remove", width=80, height=32, 
+                                        fg_color="#8B0000", hover_color="#B71C1C", command=self.remove)
         self.btn_remove.pack(side='right', padx=(5, 20))
 
-        self.btn_toggle = ctk.CTkButton(self, text="Connect", width=120, height=32, 
-                                        fg_color="#1976D2", hover_color="#1565C0",
-                                        command=self.toggle_connection)
+        self.btn_toggle = ctk.CTkButton(self.top_bar, text="Connect", width=120, height=32, 
+                                        fg_color="#1976D2", hover_color="#1565C0", command=self.toggle_connection)
         self.btn_toggle.pack(side='right', padx=5)
+
+        self.btn_map = ctk.CTkButton(self.top_bar, text="Edit Bindings", width=100, height=32,
+                                     fg_color="#455A64", hover_color="#607D8B", command=self.toggle_mapping_view)
+        self.btn_map.pack(side='right', padx=5)
+
+        # Mapping Content (Initially Hidden)
+        self.mapping_frame = ctk.CTkFrame(self, fg_color="#222222", corner_radius=0)
+        
+        # Populate Mapping Actions
+        self.actions_dict = XBOX_ACTIONS if controller_type == "Xbox" else PS4_ACTIONS
+        for action in self.actions_dict.keys():
+            self.mappings[action] = None
+            row = MappingRow(self.mapping_frame, action, None, self.request_binding, self.clear_binding)
+            row.pack(fill='x', padx=10)
+
+    def toggle_mapping_view(self):
+        if self.is_mapping_visible:
+            self.mapping_frame.pack_forget()
+        else:
+            self.mapping_frame.pack(fill='x', padx=10, pady=(0, 10))
+        self.is_mapping_visible = not self.is_mapping_visible
+
+    def request_binding(self, action_name, ui_callback):
+        # Global key capture
+        key = keyboard.read_event(suppress=True)
+        if key.event_type == "down":
+            key_name = key.name
+            
+            # Safety Check: Duplicate within same controller or globally
+            if not self.check_binding_callback(self.index, action_name, key_name):
+                ui_callback(self.mappings[action_name] if self.mappings[action_name] else "None")
+                return
+
+            self.mappings[action_name] = key_name
+            ui_callback(key_name)
+            print(f"[BIND] Controller {self.index + 1}: {action_name} -> {key_name}")
+
+    def clear_binding(self, action_name):
+        self.mappings[action_name] = None
+        print(f"[CLEAR] Controller {self.index + 1}: {action_name} binding removed.")
 
     def update_label(self, new_index):
         self.index = new_index
@@ -42,46 +159,21 @@ class ControllerRow(ctk.CTkFrame):
         self.info_label.configure(text=f"🎮 {display_name} ({self.index + 1})")
 
     def toggle_connection(self, force_state=None):
-        """
-        force_state: True to connect, False to disconnect, None to toggle
-        """
         target_state = not self.is_connected if force_state is None else force_state
-        
-        if target_state == self.is_connected:
-            return # Already in desired state
+        if target_state == self.is_connected: return
 
-        if target_state: # Connecting
+        if target_state:
             try:
-                if self.controller_type == "Xbox":
-                    self.gamepad = vg.VX360Gamepad()
-                else:
-                    self.gamepad = vg.VDS4Gamepad()
-                
-                self.gamepad.left_joystick_float(0.0, 0.0)
-                self.gamepad.right_joystick_float(0.0, 0.0)
-                self.gamepad.update()
-                time.sleep(0.05)
-                
-                self.gamepad.left_joystick_float(0.01, 0.01)
-                self.gamepad.update()
-                time.sleep(0.05)
-                
+                self.gamepad = vg.VX360Gamepad() if self.controller_type == "Xbox" else vg.VDS4Gamepad()
                 self.gamepad.reset()
-                self.gamepad.left_joystick_float(0.0, 0.0)
-                self.gamepad.right_joystick_float(0.0, 0.0)
                 self.gamepad.update()
-                
                 self.is_connected = True
                 self.btn_toggle.configure(text="Disconnect", fg_color="#388E3C", hover_color="#2E7D32")
                 self.btn_remove.configure(state="disabled", fg_color="#555555")
-                
-                print(f"[INFO] {self.controller_type} Controller {self.index + 1} connected.")
-                self.start_heartbeat()
+                self.start_input_loop()
             except Exception as e:
-                if force_state is None: # Only show error if manual toggle
-                    messagebox.showerror("Driver Error", f"Failed to connect controller: {e}")
-                print(f"[ERROR] Driver Error: {e}")
-        else: # Disconnecting
+                if force_state is None: messagebox.showerror("Driver Error", f"Failed to connect: {e}")
+        else:
             self.is_connected = False
             if self.gamepad:
                 self.gamepad.reset()
@@ -89,163 +181,146 @@ class ControllerRow(ctk.CTkFrame):
                 del self.gamepad
             self.gamepad = None
             self.btn_toggle.configure(text="Connect", fg_color="#1976D2", hover_color="#1565C0")
-            self.btn_remove.configure(state="normal", fg_color="#d32f2f")
-            print(f"[INFO] {self.controller_type} Controller {self.index + 1} disconnected.")
+            self.btn_remove.configure(state="normal", fg_color="#8B0000")
 
-    def start_heartbeat(self):
-        if self.is_connected and self.gamepad:
-            try:
-                self.gamepad.left_joystick_float(0.0, 0.0)
-                self.gamepad.right_joystick_float(0.0, 0.0)
-                self.gamepad.update()
-                self.after(1000, self.start_heartbeat)
-            except Exception as e:
-                print(f"[ERROR] Heartbeat failed for {self.controller_type} Controller {self.index + 1}: {e}")
+    def start_input_loop(self):
+        """High-frequency loop for real-time key-to-controller mapping (10ms)"""
+        if not self.is_connected or not self.gamepad: return
+
+        try:
+            # Handle DPAD State (One directional update for multiple keys)
+            dpad_up = keyboard.is_pressed(self.mappings["DPAD Up"]) if self.mappings["DPAD Up"] else False
+            dpad_down = keyboard.is_pressed(self.mappings["DPAD Down"]) if self.mappings["DPAD Down"] else False
+            dpad_left = keyboard.is_pressed(self.mappings["DPAD Left"]) if self.mappings["DPAD Left"] else False
+            dpad_right = keyboard.is_pressed(self.mappings["DPAD Right"]) if self.mappings["DPAD Right"] else False
+
+            # Update Standard Buttons
+            for action, key in self.mappings.items():
+                if not key or "DPAD" in action: continue
+                
+                vg_btn = self.actions_dict[action]
+                is_pressed = keyboard.is_pressed(key)
+
+                if isinstance(vg_btn, tuple) and vg_btn[0] == "special":
+                    if is_pressed: self.gamepad.press_special_button(vg_btn[1])
+                    else: self.gamepad.release_special_button(vg_btn[1])
+                else:
+                    if is_pressed: self.gamepad.press_button(vg_btn)
+                    else: self.gamepad.release_button(vg_btn)
+
+            # Update DPAD (Controller Specific)
+            if self.controller_type == "Xbox":
+                if dpad_up: self.gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP)
+                else: self.gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP)
+                if dpad_down: self.gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN)
+                else: self.gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN)
+                if dpad_left: self.gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT)
+                else: self.gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT)
+                if dpad_right: self.gamepad.press_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT)
+                else: self.gamepad.release_button(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT)
+            else:
+                # PS4 uses a single directional_pad value
+                direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NONE
+                if dpad_up and dpad_right: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTH_EAST
+                elif dpad_up and dpad_left: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTH_WEST
+                elif dpad_down and dpad_right: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTH_EAST
+                elif dpad_down and dpad_left: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTH_WEST
+                elif dpad_up: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTH
+                elif dpad_down: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTH
+                elif dpad_left: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_WEST
+                elif dpad_right: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_EAST
+                self.gamepad.directional_pad(direction)
+
+            self.gamepad.update()
+            self.after(10, self.start_input_loop)
+        except Exception as e:
+            print(f"[ERROR] Input loop failed: {e}")
 
     def remove(self):
-        if self.is_connected:
-            return
+        if self.is_connected: return
         self.remove_callback(self)
         self.destroy()
 
 class ControllerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-
         self.title("Virtual Controller Manager")
-        self.geometry("700x750")
+        self.geometry("800x850")
         
-        # Main Header
+        # Header
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.header_frame.pack(fill='x', pady=(20, 10))
+        ctk.CTkLabel(self.header_frame, text="VIRTUAL CONTROLLER HUB", font=("Segoe UI", 24, "bold")).pack()
 
-        self.title_label = ctk.CTkLabel(self.header_frame, text="VIRTUAL CONTROLLER HUB", 
-                                        font=("Segoe UI", 24, "bold"))
-        self.title_label.pack()
-
-        # Button Container for adding different types
+        # Add Buttons
         self.btn_container = ctk.CTkFrame(self.header_frame, fg_color="transparent")
         self.btn_container.pack(pady=15)
+        ctk.CTkButton(self.btn_container, text="+ ADD XBOX 360", command=lambda: self.add_controller("Xbox"), fg_color="#1976D2").pack(side='left', padx=10)
+        ctk.CTkButton(self.btn_container, text="+ ADD PS4", command=lambda: self.add_controller("PS4"), fg_color="#455A64").pack(side='left', padx=10)
 
-        self.add_xbox_btn = ctk.CTkButton(self.btn_container, text="+ ADD XBOX 360", 
-                                     font=("Segoe UI", 12, "bold"), height=40,
-                                     fg_color="#1976D2", hover_color="#1565C0",
-                                     command=lambda: self.add_controller("Xbox"))
-        self.add_xbox_btn.pack(side='left', padx=10)
-
-        self.add_ps4_btn = ctk.CTkButton(self.btn_container, text="+ ADD PS4", 
-                                     font=("Segoe UI", 12, "bold"), height=40,
-                                     fg_color="#455A64", hover_color="#37474F",
-                                     command=lambda: self.add_controller("PS4"))
-        self.add_ps4_btn.pack(side='left', padx=10)
-
-        # Batch Actions Row (Centered container)
+        # Batch Row
         self.batch_header = ctk.CTkFrame(self, fg_color="transparent", height=40)
         self.batch_header.pack(fill='x', padx=20, pady=(0, 5))
-        
-        # Center container for the buttons
         self.batch_btn_container = ctk.CTkFrame(self.batch_header, fg_color="transparent")
         self.batch_btn_container.pack(expand=True)
 
-        # Define Colors for enabled/disabled states and hover effects (Dimmed Theme)
         self.colors = {
-            "conn": {
-                "on": {"base": "#1B5E20", "hover": "#2E7D32"},
-                "off": {"base": "#0D2B10", "hover": "#0D2B10"}
-            },
-            "disc": {
-                "on": {"base": "#A83E00", "hover": "#E65100"},
-                "off": {"base": "#3D1600", "hover": "#3D1600"}
-            },
-            "rem": {
-                "on": {"base": "#8B0000", "hover": "#B71C1C"},
-                "off": {"base": "#300000", "hover": "#300000"}
-            }
+            "conn": {"on": {"base": "#1B5E20", "hover": "#2E7D32"}, "off": {"base": "#0D2B10", "hover": "#0D2B10"}},
+            "disc": {"on": {"base": "#A83E00", "hover": "#E65100"}, "off": {"base": "#3D1600", "hover": "#3D1600"}},
+            "rem": {"on": {"base": "#8B0000", "hover": "#B71C1C"}, "off": {"base": "#300000", "hover": "#300000"}}
         }
 
-        self.conn_all_btn = ctk.CTkButton(self.batch_btn_container, text="CONNECT ALL", 
-                                          font=("Segoe UI", 11, "bold"), height=32, width=120,
-                                          command=lambda: self.batch_action(True))
+        self.conn_all_btn = ctk.CTkButton(self.batch_btn_container, text="CONNECT ALL", command=lambda: self.batch_action(True))
         self.conn_all_btn.pack(side='left', padx=5)
-
-        self.disc_all_btn = ctk.CTkButton(self.batch_btn_container, text="DISCONNECT ALL", 
-                                          font=("Segoe UI", 11, "bold"), height=32, width=120,
-                                          command=lambda: self.batch_action(False))
+        self.disc_all_btn = ctk.CTkButton(self.batch_btn_container, text="DISCONNECT ALL", command=lambda: self.batch_action(False))
         self.disc_all_btn.pack(side='left', padx=5)
-
-        self.rm_all_btn = ctk.CTkButton(self.batch_btn_container, text="REMOVE ALL", 
-                                          font=("Segoe UI", 11, "bold"), height=32, width=120,
-                                          command=self.remove_all)
+        self.rm_all_btn = ctk.CTkButton(self.batch_btn_container, text="REMOVE ALL", command=self.remove_all)
         self.rm_all_btn.pack(side='left', padx=5)
 
-        # Scrollable area for controllers
         self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.scroll_frame.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
         self.controllers = []
-        self.update_batch_visibility() # Initial state
+        self.update_batch_visibility()
+
+    def check_global_binding(self, caller_index, action_name, key_name):
+        """Ensures a key isn't used by another button or controller."""
+        for i, ctrl in enumerate(self.controllers):
+            for act, k in ctrl.mappings.items():
+                if k == key_name:
+                    # Allow re-binding the same action to the same key, but block others
+                    if i == caller_index and act == action_name: continue
+                    messagebox.showwarning("Binding Conflict", f"Key '{key_name}' is already bound to Controller {i+1} ({act})")
+                    return False
+        return True
 
     def update_batch_visibility(self):
         has_controllers = len(self.controllers) > 0
         state = "normal" if has_controllers else "disabled"
         mode = "on" if has_controllers else "off"
-        
-        # Update Connect All
-        self.conn_all_btn.configure(
-            state=state,
-            fg_color=self.colors["conn"][mode]["base"],
-            hover_color=self.colors["conn"][mode]["hover"]
-        )
-        
-        # Update Disconnect All
-        self.disc_all_btn.configure(
-            state=state,
-            fg_color=self.colors["disc"][mode]["base"],
-            hover_color=self.colors["disc"][mode]["hover"]
-        )
-        
-        # Update Remove All
-        self.rm_all_btn.configure(
-            state=state,
-            fg_color=self.colors["rem"][mode]["base"],
-            hover_color=self.colors["rem"][mode]["hover"]
-        )
+        self.conn_all_btn.configure(state=state, fg_color=self.colors["conn"][mode]["base"], hover_color=self.colors["conn"][mode]["hover"])
+        self.disc_all_btn.configure(state=state, fg_color=self.colors["disc"][mode]["base"], hover_color=self.colors["disc"][mode]["hover"])
+        self.rm_all_btn.configure(state=state, fg_color=self.colors["rem"][mode]["base"], hover_color=self.colors["rem"][mode]["hover"])
 
     def add_controller(self, controller_type):
-        index = len(self.controllers)
-        row = ControllerRow(self.scroll_frame, index, self.remove_row, controller_type)
+        row = ControllerRow(self.scroll_frame, len(self.controllers), self.remove_row, self.check_global_binding, controller_type)
         self.controllers.append(row)
         self.update_batch_visibility()
 
     def remove_row(self, row):
-        if row in self.controllers:
-            self.controllers.remove(row)
-        # Re-index remaining controllers
-        for i, controller in enumerate(self.controllers):
-            controller.update_label(i)
+        if row in self.controllers: self.controllers.remove(row)
+        for i, c in enumerate(self.controllers): c.update_label(i)
         self.update_batch_visibility()
 
     def remove_all(self):
-        # Disconnect all first
         self.batch_action(False)
-        # Remove each row
-        for controller in list(self.controllers):
-            controller.destroy()
+        for c in list(self.controllers): c.destroy()
         self.controllers = []
         self.update_batch_visibility()
 
     def batch_action(self, connect):
-        for controller in self.controllers:
-            controller.toggle_connection(force_state=connect)
+        for c in self.controllers: c.toggle_connection(force_state=connect)
 
 if __name__ == "__main__":
-    try:
-        import customtkinter
-        import vgamepad
-    except ImportError as e:
-        print(f"[ERROR] Missing library: {e}")
-        print("Please run: pip install customtkinter vgamepad")
-        sys.exit(1)
-
     app = ControllerApp()
     app.mainloop()
