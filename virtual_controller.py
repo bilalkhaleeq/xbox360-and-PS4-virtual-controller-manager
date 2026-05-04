@@ -1,7 +1,7 @@
 import customtkinter as ctk
 from tkinter import messagebox
 import vgamepad as vg
-import keyboard  # New dependency for global hooks
+import keyboard
 import json
 import os
 
