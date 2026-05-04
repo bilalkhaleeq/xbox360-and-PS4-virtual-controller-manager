@@ -20,8 +20,11 @@ XBOX_ACTIONS = {
     "Y Button": vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,
     "LB (Shoulder)": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
     "RB (Shoulder)": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
+    "LT (Trigger)": "LT",
+    "RT (Trigger)": "RT",
     "Start": vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
     "Back": vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
+    "Guide": vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
     "Left Stick Click": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,
     "Right Stick Click": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,
     "DPAD Up": "DPAD_UP",
@@ -37,6 +40,8 @@ PS4_ACTIONS = {
     "Triangle": vg.DS4_BUTTONS.DS4_BUTTON_TRIANGLE,
     "L1 (Shoulder)": vg.DS4_BUTTONS.DS4_BUTTON_SHOULDER_LEFT,
     "R1 (Shoulder)": vg.DS4_BUTTONS.DS4_BUTTON_SHOULDER_RIGHT,
+    "L2 (Trigger)": "L2",
+    "R2 (Trigger)": "R2",
     "Options": vg.DS4_BUTTONS.DS4_BUTTON_OPTIONS,
     "Share": vg.DS4_BUTTONS.DS4_BUTTON_SHARE,
     "L3 (Stick Click)": vg.DS4_BUTTONS.DS4_BUTTON_THUMB_LEFT,
@@ -140,20 +145,23 @@ class ControllerRow(ctk.CTkFrame):
         self.is_mapping_visible = not self.is_mapping_visible
 
     def request_binding(self, action_name, ui_callback):
-        # Global key capture
-        key = keyboard.read_event(suppress=True)
-        if key.event_type == "down":
-            key_name = key.name
+        # Non-blocking key capture using keyboard.on_press
+        def on_key(event):
+            key_name = event.name
+            keyboard.unhook(hook) # Stop listening
             
             # Safety Check: Duplicate within same controller or globally
             if not self.check_binding_callback(self.index, action_name, key_name):
-                ui_callback(self.mappings[action_name] if self.mappings[action_name] else "None")
+                # Use after to update UI from main thread
+                self.after(0, lambda: ui_callback(self.mappings[action_name] if self.mappings[action_name] else "None"))
                 return
 
             self.mappings[action_name] = key_name
-            ui_callback(key_name)
+            self.after(0, lambda: ui_callback(key_name))
             self.save_callback()
             print(f"[BIND] Controller {self.index + 1}: {action_name} -> {key_name}")
+
+        hook = keyboard.on_press(on_key)
 
     def clear_binding(self, action_name):
         self.mappings[action_name] = None
@@ -196,10 +204,10 @@ class ControllerRow(ctk.CTkFrame):
 
         try:
             # Handle DPAD State (One directional update for multiple keys)
-            dpad_up = keyboard.is_pressed(self.mappings["DPAD Up"]) if self.mappings["DPAD Up"] else False
-            dpad_down = keyboard.is_pressed(self.mappings["DPAD Down"]) if self.mappings["DPAD Down"] else False
-            dpad_left = keyboard.is_pressed(self.mappings["DPAD Left"]) if self.mappings["DPAD Left"] else False
-            dpad_right = keyboard.is_pressed(self.mappings["DPAD Right"]) if self.mappings["DPAD Right"] else False
+            dpad_up = keyboard.is_pressed(self.mappings["DPAD Up"]) if self.mappings.get("DPAD Up") else False
+            dpad_down = keyboard.is_pressed(self.mappings["DPAD Down"]) if self.mappings.get("DPAD Down") else False
+            dpad_left = keyboard.is_pressed(self.mappings["DPAD Left"]) if self.mappings.get("DPAD Left") else False
+            dpad_right = keyboard.is_pressed(self.mappings["DPAD Right"]) if self.mappings.get("DPAD Right") else False
 
             # Update Standard Buttons
             for action, key in self.mappings.items():
@@ -211,6 +219,10 @@ class ControllerRow(ctk.CTkFrame):
                 if isinstance(vg_btn, tuple) and vg_btn[0] == "special":
                     if is_pressed: self.gamepad.press_special_button(vg_btn[1])
                     else: self.gamepad.release_special_button(vg_btn[1])
+                elif isinstance(vg_btn, str) and vg_btn in ["LT", "RT", "L2", "R2"]:
+                    val = 255 if is_pressed else 0
+                    if vg_btn in ["LT", "L2"]: self.gamepad.left_trigger(val)
+                    else: self.gamepad.right_trigger(val)
                 else:
                     if is_pressed: self.gamepad.press_button(vg_btn)
                     else: self.gamepad.release_button(vg_btn)
@@ -228,10 +240,10 @@ class ControllerRow(ctk.CTkFrame):
             else:
                 # PS4 uses a single directional_pad value
                 direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NONE
-                if dpad_up and dpad_right: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTH_EAST
-                elif dpad_up and dpad_left: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTH_WEST
-                elif dpad_down and dpad_right: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTH_EAST
-                elif dpad_down and dpad_left: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTH_WEST
+                if dpad_up and dpad_right: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTHEAST
+                elif dpad_up and dpad_left: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTHWEST
+                elif dpad_down and dpad_right: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTHEAST
+                elif dpad_down and dpad_left: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTHWEST
                 elif dpad_up: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTH
                 elif dpad_down: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTH
                 elif dpad_left: direction = vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_WEST
