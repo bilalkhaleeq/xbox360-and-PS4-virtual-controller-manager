@@ -12,7 +12,6 @@ ctk.set_default_color_theme("blue")
 CONFIG_FILE = "controller_config.json"
 
 # Constants for Mappable Actions
-# ... (rest of the constants)
 XBOX_ACTIONS = {
     "A Button": vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
     "B Button": vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
@@ -89,7 +88,8 @@ class MappingRow(ctk.CTkFrame):
         self.update_ui("None")
 
     def update_ui(self, key_name):
-        self.btn_bind.configure(text=key_name, fg_color="#333333")
+        if self.winfo_exists():
+            self.btn_bind.configure(text=key_name, fg_color="#333333")
 
 class ControllerRow(ctk.CTkFrame):
     def __init__(self, master, index, remove_callback, check_binding_callback, save_callback, controller_type="Xbox", initial_mappings=None):
@@ -103,6 +103,7 @@ class ControllerRow(ctk.CTkFrame):
         self.is_connected = False
         self.mappings = initial_mappings if initial_mappings else {}
         self.is_mapping_visible = False
+        self.mapping_rows_ui = {}
 
         self.pack(fill='x', padx=20, pady=10)
 
@@ -129,13 +130,55 @@ class ControllerRow(ctk.CTkFrame):
         # Mapping Content (Initially Hidden)
         self.mapping_frame = ctk.CTkFrame(self, fg_color="#222222", corner_radius=0)
         
-        # Populate Mapping Actions
+        # Action Selection Bar
+        self.add_bar = ctk.CTkFrame(self.mapping_frame, fg_color="transparent")
+        self.add_bar.pack(fill='x', padx=10, pady=10)
+
         self.actions_dict = XBOX_ACTIONS if controller_type == "Xbox" else PS4_ACTIONS
-        for action in self.actions_dict.keys():
-            if action not in self.mappings:
-                self.mappings[action] = None
-            row = MappingRow(self.mapping_frame, action, self.mappings[action], self.request_binding, self.clear_binding)
-            row.pack(fill='x', padx=10)
+        self.selector = ctk.CTkOptionMenu(self.add_bar, values=self.get_available_actions(), width=200)
+        self.selector.set("Select action to add...")
+        self.selector.pack(side='left', padx=5)
+
+        self.btn_add = ctk.CTkButton(self.add_bar, text="+ ADD", width=60, fg_color="#1B5E20", hover_color="#2E7D32", command=self.add_selected_action)
+        self.btn_add.pack(side='left', padx=5)
+
+        # Container for active mappings
+        self.rows_container = ctk.CTkFrame(self.mapping_frame, fg_color="transparent")
+        self.rows_container.pack(fill='x')
+
+        # Populate Initial Mapping Actions
+        for action, key in self.mappings.items():
+            self.create_mapping_row(action, key)
+
+    def get_available_actions(self):
+        actions = [a for a in self.actions_dict.keys() if a not in self.mappings]
+        return actions if actions else ["(No actions available)"]
+
+    def add_selected_action(self):
+        action = self.selector.get()
+        if action in self.actions_dict and action not in self.mappings:
+            self.mappings[action] = None
+            self.create_mapping_row(action, None)
+            self.selector.configure(values=self.get_available_actions())
+            self.selector.set("Select action to add...")
+            self.save_callback()
+        elif action == "(No actions available)":
+            messagebox.showinfo("Limit Reached", "All possible buttons for this controller have already been added.")
+
+    def create_mapping_row(self, action, key):
+        row = MappingRow(self.rows_container, action, key, self.request_binding, self.remove_action)
+        row.pack(fill='x', padx=10)
+        self.mapping_rows_ui[action] = row
+
+    def remove_action(self, action_name):
+        if action_name in self.mappings:
+            del self.mappings[action_name]
+        if action_name in self.mapping_rows_ui:
+            self.mapping_rows_ui[action_name].destroy()
+            del self.mapping_rows_ui[action_name]
+        self.selector.configure(values=self.get_available_actions())
+        self.save_callback()
+        print(f"[REMOVE] Controller {self.index + 1}: {action_name} removed.")
 
     def toggle_mapping_view(self):
         if self.is_mapping_visible:
@@ -150,10 +193,14 @@ class ControllerRow(ctk.CTkFrame):
             key_name = event.name
             keyboard.unhook(hook) # Stop listening
             
+            # Safety Check: Does the controller/widget still exist?
+            if not self.winfo_exists():
+                return
+
             # Safety Check: Duplicate within same controller or globally
             if not self.check_binding_callback(self.index, action_name, key_name):
                 # Use after to update UI from main thread
-                self.after(0, lambda: ui_callback(self.mappings[action_name] if self.mappings[action_name] else "None"))
+                self.after(0, lambda: ui_callback(self.mappings[action_name] if self.mappings.get(action_name) else "None"))
                 return
 
             self.mappings[action_name] = key_name
