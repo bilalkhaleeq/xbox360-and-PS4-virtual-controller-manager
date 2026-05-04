@@ -47,3 +47,5 @@ pyvenv.cfg
 # OS files
 .DS_Store
 Thumbs.db
+
+controller_config.json

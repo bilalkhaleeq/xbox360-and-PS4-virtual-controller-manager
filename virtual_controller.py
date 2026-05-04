@@ -4,12 +4,17 @@ import vgamepad as vg
 import sys
 import time
 import keyboard  # New dependency for global hooks
+import json
+import os
 
 # Set Appearance and Theme
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
+CONFIG_FILE = "controller_config.json"
+
 # Constants for Mappable Actions
+# ... (rest of the constants)
 XBOX_ACTIONS = {
     "A Button": vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
     "B Button": vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
@@ -84,15 +89,16 @@ class MappingRow(ctk.CTkFrame):
         self.btn_bind.configure(text=key_name, fg_color="#333333")
 
 class ControllerRow(ctk.CTkFrame):
-    def __init__(self, master, index, remove_callback, check_binding_callback, controller_type="Xbox"):
+    def __init__(self, master, index, remove_callback, check_binding_callback, save_callback, controller_type="Xbox", initial_mappings=None):
         super().__init__(master, corner_radius=10)
         self.index = index
         self.remove_callback = remove_callback
         self.check_binding_callback = check_binding_callback
+        self.save_callback = save_callback
         self.controller_type = controller_type
         self.gamepad = None
         self.is_connected = False
-        self.mappings = {} # action_name -> key_name
+        self.mappings = initial_mappings if initial_mappings else {}
         self.is_mapping_visible = False
 
         self.pack(fill='x', padx=20, pady=10)
@@ -123,8 +129,9 @@ class ControllerRow(ctk.CTkFrame):
         # Populate Mapping Actions
         self.actions_dict = XBOX_ACTIONS if controller_type == "Xbox" else PS4_ACTIONS
         for action in self.actions_dict.keys():
-            self.mappings[action] = None
-            row = MappingRow(self.mapping_frame, action, None, self.request_binding, self.clear_binding)
+            if action not in self.mappings:
+                self.mappings[action] = None
+            row = MappingRow(self.mapping_frame, action, self.mappings[action], self.request_binding, self.clear_binding)
             row.pack(fill='x', padx=10)
 
     def toggle_mapping_view(self):
@@ -147,10 +154,12 @@ class ControllerRow(ctk.CTkFrame):
 
             self.mappings[action_name] = key_name
             ui_callback(key_name)
+            self.save_callback()
             print(f"[BIND] Controller {self.index + 1}: {action_name} -> {key_name}")
 
     def clear_binding(self, action_name):
         self.mappings[action_name] = None
+        self.save_callback()
         print(f"[CLEAR] Controller {self.index + 1}: {action_name} binding removed.")
 
     def update_label(self, new_index):
@@ -250,7 +259,17 @@ class ControllerApp(ctk.CTk):
         # Header
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.header_frame.pack(fill='x', pady=(20, 10))
-        ctk.CTkLabel(self.header_frame, text="VIRTUAL CONTROLLER HUB", font=("Segoe UI", 24, "bold")).pack()
+        
+        # Title and Reset Button Container
+        self.title_container = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        self.title_container.pack(fill='x', padx=20)
+        
+        ctk.CTkLabel(self.title_container, text="VIRTUAL CONTROLLER HUB", font=("Segoe UI", 24, "bold")).pack(side='left')
+        
+        self.btn_reset = ctk.CTkButton(self.title_container, text="CLEAR SAVED CONFIG", width=140, height=28,
+                                       fg_color="#333333", hover_color="#8B0000", font=("Segoe UI", 10, "bold"),
+                                       command=self.clear_config)
+        self.btn_reset.pack(side='right')
 
         # Add Buttons
         self.btn_container = ctk.CTkFrame(self.header_frame, fg_color="transparent")
@@ -281,14 +300,46 @@ class ControllerApp(ctk.CTk):
         self.scroll_frame.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
         self.controllers = []
+        self.load_config()
         self.update_batch_visibility()
+
+    def save_config(self):
+        config_data = []
+        for ctrl in self.controllers:
+            config_data.append({
+                "type": ctrl.controller_type,
+                "mappings": ctrl.mappings
+            })
+        try:
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config_data, f, indent=4)
+            print("[INFO] Configuration auto-saved.")
+        except Exception as e:
+            print(f"[ERROR] Failed to save config: {e}")
+
+    def load_config(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r") as f:
+                    config_data = json.load(f)
+                    for item in config_data:
+                        self.add_controller(item["type"], item.get("mappings", {}))
+                print("[INFO] Configuration loaded.")
+            except Exception as e:
+                print(f"[ERROR] Failed to load config: {e}")
+
+    def clear_config(self):
+        if messagebox.askyesno("Clear Config", "This will disconnect all controllers and wipe your saved bindings. Proceed?"):
+            if os.path.exists(CONFIG_FILE):
+                os.remove(CONFIG_FILE)
+            self.remove_all()
+            messagebox.showinfo("Reset", "Saved configuration cleared.")
 
     def check_global_binding(self, caller_index, action_name, key_name):
         """Ensures a key isn't used by another button or controller."""
         for i, ctrl in enumerate(self.controllers):
             for act, k in ctrl.mappings.items():
                 if k == key_name:
-                    # Allow re-binding the same action to the same key, but block others
                     if i == caller_index and act == action_name: continue
                     messagebox.showwarning("Binding Conflict", f"Key '{key_name}' is already bound to Controller {i+1} ({act})")
                     return False
@@ -302,25 +353,37 @@ class ControllerApp(ctk.CTk):
         self.disc_all_btn.configure(state=state, fg_color=self.colors["disc"][mode]["base"], hover_color=self.colors["disc"][mode]["hover"])
         self.rm_all_btn.configure(state=state, fg_color=self.colors["rem"][mode]["base"], hover_color=self.colors["rem"][mode]["hover"])
 
-    def add_controller(self, controller_type):
-        row = ControllerRow(self.scroll_frame, len(self.controllers), self.remove_row, self.check_global_binding, controller_type)
+    def add_controller(self, controller_type, initial_mappings=None):
+        row = ControllerRow(self.scroll_frame, len(self.controllers), self.remove_row, self.check_global_binding, self.save_config, controller_type, initial_mappings)
         self.controllers.append(row)
         self.update_batch_visibility()
+        self.save_config()
 
     def remove_row(self, row):
         if row in self.controllers: self.controllers.remove(row)
         for i, c in enumerate(self.controllers): c.update_label(i)
         self.update_batch_visibility()
+        self.save_config()
 
     def remove_all(self):
         self.batch_action(False)
         for c in list(self.controllers): c.destroy()
         self.controllers = []
         self.update_batch_visibility()
+        self.save_config()
 
     def batch_action(self, connect):
         for c in self.controllers: c.toggle_connection(force_state=connect)
 
 if __name__ == "__main__":
+    try:
+        import customtkinter
+        import vgamepad
+        import keyboard
+    except ImportError as e:
+        print(f"[ERROR] Missing library: {e}")
+        print("Please run: pip install customtkinter vgamepad keyboard")
+        sys.exit(1)
+
     app = ControllerApp()
     app.mainloop()
