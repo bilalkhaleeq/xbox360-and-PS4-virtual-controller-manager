@@ -9,17 +9,20 @@ ctk.set_appearance_mode("Dark")  # Dark mode by default
 ctk.set_default_color_theme("blue")  # Modern blue accent
 
 class ControllerRow(ctk.CTkFrame):
-    def __init__(self, master, index, remove_callback):
+    def __init__(self, master, index, remove_callback, controller_type="Xbox"):
         super().__init__(master, corner_radius=10)
         self.index = index
         self.remove_callback = remove_callback
+        self.controller_type = controller_type
         self.gamepad = None
         self.is_connected = False
 
         self.pack(fill='x', padx=20, pady=10)
 
         # Left: Controller Info
-        self.info_label = ctk.CTkLabel(self, text=f"🎮 Controller {index + 1}", font=("Segoe UI", 16, "bold"), width=150, anchor='w')
+        display_name = "Xbox 360" if self.controller_type == "Xbox" else "PS4"
+        self.info_label = ctk.CTkLabel(self, text=f"🎮 {display_name} ({index + 1})", 
+                                        font=("Segoe UI", 16, "bold"), width=200, anchor='w')
         self.info_label.pack(side='left', padx=20, pady=15)
 
         # Right: Buttons (Remove, Connect/Disconnect)
@@ -36,31 +39,34 @@ class ControllerRow(ctk.CTkFrame):
     def toggle_connection(self):
         if not self.is_connected:
             try:
-                self.gamepad = vg.VX360Gamepad()
+                if self.controller_type == "Xbox":
+                    self.gamepad = vg.VX360Gamepad()
+                else:
+                    self.gamepad = vg.VDS4Gamepad()
                 
                 # WARM-UP SEQUENCE: Force driver to see a state change
                 # 1. Start at absolute zero
-                self.gamepad.left_joystick(0, 0)
-                self.gamepad.right_joystick(0, 0)
+                self.gamepad.left_joystick_float(0.0, 0.0)
+                self.gamepad.right_joystick_float(0.0, 0.0)
                 self.gamepad.update()
                 time.sleep(0.05)
                 
                 # 2. Briefly send a tiny pulse to "wake up" the report
-                self.gamepad.left_joystick(1, 1)
+                self.gamepad.left_joystick_float(0.01, 0.01)
                 self.gamepad.update()
                 time.sleep(0.05)
                 
                 # 3. Final Reset to absolute zero
                 self.gamepad.reset()
-                self.gamepad.left_joystick(0, 0)
-                self.gamepad.right_joystick(0, 0)
+                self.gamepad.left_joystick_float(0.0, 0.0)
+                self.gamepad.right_joystick_float(0.0, 0.0)
                 self.gamepad.update()
                 
                 self.is_connected = True
                 self.btn_toggle.configure(text="Disconnect", fg_color="#388E3C", hover_color="#2E7D32")
                 self.btn_remove.configure(state="disabled", fg_color="#555555")
                 
-                print(f"[INFO] Controller {self.index + 1} connected. Warm-up sequence complete.")
+                print(f"[INFO] {self.controller_type} Controller {self.index + 1} connected. Warm-up sequence complete.")
                 self.start_heartbeat()
             except Exception as e:
                 messagebox.showerror("Driver Error", f"Failed to connect controller: {e}\n\nEnsure ViGEmBus driver is installed.")
@@ -73,20 +79,20 @@ class ControllerRow(ctk.CTkFrame):
             self.gamepad = None
             self.btn_toggle.configure(text="Connect", fg_color="#1976D2", hover_color="#1565C0")
             self.btn_remove.configure(state="normal", fg_color="#d32f2f")
-            print(f"[INFO] Controller {self.index + 1} disconnected.")
+            print(f"[INFO] {self.controller_type} Controller {self.index + 1} disconnected.")
 
     def start_heartbeat(self):
         if self.is_connected and self.gamepad:
             try:
-                # Continuously re-apply absolute zero
-                self.gamepad.left_joystick(0, 0)
-                self.gamepad.right_joystick(0, 0)
+                # Continuously re-apply absolute zero using floats for consistency
+                self.gamepad.left_joystick_float(0.0, 0.0)
+                self.gamepad.right_joystick_float(0.0, 0.0)
                 self.gamepad.update()
                 
                 # Repeat every 1 second for higher persistence
                 self.after(1000, self.start_heartbeat)
             except Exception as e:
-                print(f"[ERROR] Heartbeat failed for Controller {self.index + 1}: {e}")
+                print(f"[ERROR] Heartbeat failed for {self.controller_type} Controller {self.index + 1}: {e}")
 
     def remove(self):
         if self.is_connected:
@@ -99,7 +105,7 @@ class ControllerApp(ctk.CTk):
         super().__init__()
 
         self.title("Virtual Controller Manager")
-        self.geometry("600x600")
+        self.geometry("650x700")
         
         # Main Header
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -109,10 +115,21 @@ class ControllerApp(ctk.CTk):
                                         font=("Segoe UI", 24, "bold"))
         self.title_label.pack()
 
-        self.add_btn = ctk.CTkButton(self.header_frame, text="+ ADD NEW CONTROLLER", 
-                                     font=("Segoe UI", 14, "bold"), height=40,
-                                     command=self.add_controller)
-        self.add_btn.pack(pady=15)
+        # Button Container for adding different types
+        self.btn_container = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        self.btn_container.pack(pady=15)
+
+        self.add_xbox_btn = ctk.CTkButton(self.btn_container, text="+ ADD XBOX 360 CONTROLLER", 
+                                     font=("Segoe UI", 12, "bold"), height=40,
+                                     fg_color="#1976D2", hover_color="#1565C0",
+                                     command=lambda: self.add_controller("Xbox"))
+        self.add_xbox_btn.pack(side='left', padx=10)
+
+        self.add_ps4_btn = ctk.CTkButton(self.btn_container, text="+ ADD PS4 CONTROLLER", 
+                                     font=("Segoe UI", 12, "bold"), height=40,
+                                     fg_color="#455A64", hover_color="#37474F",
+                                     command=lambda: self.add_controller("PS4"))
+        self.add_ps4_btn.pack(side='left', padx=10)
 
         # Scrollable area for controllers
         self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -121,8 +138,8 @@ class ControllerApp(ctk.CTk):
         self.controllers = []
         self.counter = 0
 
-    def add_controller(self):
-        row = ControllerRow(self.scroll_frame, self.counter, self.remove_row)
+    def add_controller(self, controller_type):
+        row = ControllerRow(self.scroll_frame, self.counter, self.remove_row, controller_type)
         self.controllers.append(row)
         self.counter += 1
 
