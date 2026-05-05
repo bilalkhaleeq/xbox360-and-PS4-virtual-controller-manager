@@ -55,12 +55,16 @@ This project includes a GitHub Actions workflow to automatically build and relea
    git tag v1.0.0
    git push origin v1.0.0
    ```
-2. **Automatic Build & Documentation:** GitHub Actions will detect the tag, build the `.exe`, and create a new Release. It will also **automatically generate concise release notes** by summarizing all commits and pull requests since the previous version.
+2. **Automatic Build & Documentation:** GitHub Actions will detect the tag, build the `.exe`, and create a new Release.
+   - **Intelligent Release Notes:** The project uses a custom `generate_release_notes.py` engine with Triple-Layer Filtering:
+     - **File-Aware:** Commits touching only infrastructure (`.github/`, `.githooks/`) or documentation (`README.md`, `DEVELOPER.md`) are automatically ignored.
+     - **Category-Based:** Only `feat:`, `fix:`, and `refactor:` prefixes are included.
+     - **Deep-Content Filtering:** Multi-part commit messages are split, and non-app segments (e.g., "updated readme") are stripped from the final output even if they share a commit with a feature.
 
 ---
 
 ## 🏗️ Project Structure
 - `virtual_controller.py`: Main application logic and GUI.
-- `generate_release_notes.py`: Script used by CI/CD to synthesize changelogs.
+- `generate_release_notes.py`: High-signal release note generation engine.
 - `.githooks/`: Contains the logic for automatic commit prefixing.
 - `.github/workflows/`: Contains the CI/CD pipeline configuration.
