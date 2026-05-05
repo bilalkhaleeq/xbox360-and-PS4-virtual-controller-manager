@@ -92,11 +92,12 @@ class MappingRow(ctk.CTkFrame):
             self.btn_bind.configure(text=key_name, fg_color="#333333")
 
 class ControllerRow(ctk.CTkFrame):
-    def __init__(self, master, index, remove_callback, check_binding_callback, save_callback, controller_type="Xbox", initial_mappings=None):
+    def __init__(self, master, index, remove_callback, check_binding_callback, check_connection_callback, save_callback, controller_type="Xbox", initial_mappings=None):
         super().__init__(master, corner_radius=10)
         self.index = index
         self.remove_callback = remove_callback
         self.check_binding_callback = check_binding_callback
+        self.check_connection_callback = check_connection_callback
         self.save_callback = save_callback
         self.controller_type = controller_type
         self.gamepad = None
@@ -197,7 +198,7 @@ class ControllerRow(ctk.CTkFrame):
             if not self.winfo_exists():
                 return
 
-            # Safety Check: Duplicate within same controller or globally
+            # Safety Check: Duplicate within same controller
             if not self.check_binding_callback(self.index, action_name, key_name):
                 # Use after to update UI from main thread
                 self.after(0, lambda: ui_callback(self.mappings[action_name] if self.mappings.get(action_name) else "None"))
@@ -225,6 +226,9 @@ class ControllerRow(ctk.CTkFrame):
         if target_state == self.is_connected: return
 
         if target_state:
+            # Check for cross-controller conflicts before connecting
+            if not self.check_connection_callback(self):
+                return
             try:
                 self.gamepad = vg.VX360Gamepad() if self.controller_type == "Xbox" else vg.VDS4Gamepad()
                 self.gamepad.reset()
@@ -392,14 +396,31 @@ class ControllerApp(ctk.CTk):
             self.remove_all()
             messagebox.showinfo("Reset", "Saved configuration cleared.")
 
-    def check_global_binding(self, caller_index, action_name, key_name):
-        """Ensures a key isn't used by another button or controller."""
-        for i, ctrl in enumerate(self.controllers):
-            for act, k in ctrl.mappings.items():
-                if k == key_name:
-                    if i == caller_index and act == action_name: continue
-                    messagebox.showwarning("Binding Conflict", f"Key '{key_name}' is already bound to Controller {i+1} ({act})")
-                    return False
+    def check_local_binding(self, caller_index, action_name, key_name):
+        """Ensures a key isn't used by another button on the same controller."""
+        ctrl = self.controllers[caller_index]
+        for act, k in ctrl.mappings.items():
+            if k == key_name:
+                if act == action_name: continue
+                messagebox.showwarning("Binding Conflict", f"Key '{key_name}' is already bound to this controller ({act})")
+                return False
+        return True
+
+    def check_can_connect(self, caller_row):
+        """Ensures the controller doesn't share keys with any already connected controllers."""
+        my_keys = {k for k in caller_row.mappings.values() if k}
+        for other in self.controllers:
+            if other == caller_row or not other.is_connected:
+                continue
+            
+            other_keys = {k for k in other.mappings.values() if k}
+            conflicts = my_keys.intersection(other_keys)
+            if conflicts:
+                key_list = ", ".join(conflicts)
+                messagebox.showerror("Connection Error", 
+                    f"Cannot connect Controller {caller_row.index + 1}.\n"
+                    f"Keys [{key_list}] are already in use by connected Controller {other.index + 1}.")
+                return False
         return True
 
     def update_batch_visibility(self):
@@ -411,7 +432,7 @@ class ControllerApp(ctk.CTk):
         self.rm_all_btn.configure(state=state, fg_color=self.colors["rem"][mode]["base"], hover_color=self.colors["rem"][mode]["hover"])
 
     def add_controller(self, controller_type, initial_mappings=None):
-        row = ControllerRow(self.scroll_frame, len(self.controllers), self.remove_row, self.check_global_binding, self.save_config, controller_type, initial_mappings)
+        row = ControllerRow(self.scroll_frame, len(self.controllers), self.remove_row, self.check_local_binding, self.check_can_connect, self.save_config, controller_type, initial_mappings)
         self.controllers.append(row)
         self.update_batch_visibility()
         self.save_config()
