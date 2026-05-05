@@ -23,20 +23,27 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
-#  The build/ and dist/ folders are already covered above.
-#  Include .spec files if you want to regenerate the exe with the same settings,
-#  but usually, they are safe to ignore if you prefer a clean repo.
 *.spec
 
 # Virtual Environments
 venv/
 .venv/
 env/
+.env/
+pyvenv.cfg
+# Individual venv folders (more specific to avoid clashing with project 'scripts')
 bin/
 include/
 Lib/
-Scripts/
-pyvenv.cfg
+share/
+local/
+
+# Transient CI/CD files
+RELEASE_NOTES.md
+
+# Local Configuration & Logs
+controller_config.json
+*.log
 
 # IDEs
 .vscode/
@@ -47,5 +54,3 @@ pyvenv.cfg
 # OS files
 .DS_Store
 Thumbs.db
-
-controller_config.json

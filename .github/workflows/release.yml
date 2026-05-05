@@ -34,7 +34,7 @@ jobs:
         pyinstaller --noconsole --onefile --name virtual_controller_manager --collect-all customtkinter --collect-all vgamepad virtual_controller.py
 
     - name: Generate Custom Release Notes
-      run: python generate_release_notes.py
+      run: python scripts/generate_release_notes.py
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 

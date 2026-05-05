@@ -73,6 +73,6 @@ The release notes engine is designed for maximum signal and zero noise:
 
 ## 🏗️ Project Structure
 - `virtual_controller.py`: Main application logic and GUI.
-- `generate_release_notes.py`: High-signal release note generation engine.
+- `scripts/generate_release_notes.py`: High-signal release note generation engine.
 - `.githooks/`: Contains the logic for automatic commit prefixing.
 - `.github/workflows/`: Contains the CI/CD pipeline configuration.
