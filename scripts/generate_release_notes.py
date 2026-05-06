@@ -5,8 +5,8 @@ import os
 import google.generativeai as genai
 
 # --- CONFIGURATION ---
-NOISE_DIRS = ['.github/', '.githooks/']
-NOISE_FILES = ['README.md', 'DEVELOPER.md', 'generate_release_notes.py', '.gitignore', 'requirements.txt', 'controller_config.json']
+NOISE_DIRS = ['.github/', '.githooks/', 'scripts/', '__pycache__/', 'build/', 'dist/']
+NOISE_FILES = ['README.md', 'DEVELOPER.md', '.gitignore', 'requirements.txt', 'controller_config.json', 'virtual_controller.spec']
 TARGET_CATEGORIES = {
     "🚀 Features": [],
     "🐞 Bug Fixes": [],
@@ -55,9 +55,7 @@ def get_processed_commits(since_tag):
     except:
         return []
 
-    processed_data = {"🚀 Features": [], "🐞 Bug Fixes": [], "🛠️ Refactors": []}
-    
-    # Split by "COMMIT:" but keep the marker
+    processed_data = {"🚀 Features": [], "🐞 Bug Fixes": [], "🛠️ Refactors": [], "📦 Other Updates": []}
     raw_commits = re.split(r'\n?COMMIT:', output)
     
     for block in raw_commits:
@@ -65,25 +63,28 @@ def get_processed_commits(since_tag):
         lines = block.strip().split('\n')
         header = lines[0]
         files = lines[1:] if len(lines) > 1 else []
-        
         msg = header.split('|')[1]
         
-        # Layer 1: File-Aware Relevance
-        is_relevant = any(not (any(f.startswith(d) for d in NOISE_DIRS) or (f in NOISE_FILES)) for f in files)
-        if not is_relevant: continue
-
-        # Layer 2: Category & Deep-Content Filtering
+        # Layer 1: Conventional Match
         match = re.match(r'^(\w+)(\(.*\))?!?: (.*)$', msg)
+        
+        # Layer 2: File Relevance
+        is_app_relevant = any(not (any(f.startswith(d) for d in NOISE_DIRS) or (f in NOISE_FILES)) for f in files)
+
         if match:
             prefix, body = match.group(1).lower(), match.group(3)
             cat = MAPPINGS.get(prefix)
-            if cat:
+            # If it's a Feat or Fix, keep it regardless of files (it's a milestone)
+            # Otherwise, only keep if it touched app files
+            if (prefix in ['feat', 'fix']) or (cat and is_app_relevant):
                 for part in re.split(r'[,;\n]', body):
                     part = part.strip()
                     if not part: continue
-                    lower_part = part.lower()
-                    if any(kw in lower_part for kw in APP_KEYWORDS) or not any(kw in lower_part for kw in NOISE_KEYWORDS):
+                    if any(kw in part.lower() for kw in APP_KEYWORDS) or not any(kw in part.lower() for kw in NOISE_KEYWORDS):
                         processed_data[cat].append(part)
+        elif is_app_relevant:
+            # Fallback for commits without prefixes that touch code
+            processed_data["📦 Other Updates"].append(msg)
     
     return processed_data
 
