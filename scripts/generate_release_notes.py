@@ -104,22 +104,21 @@ def generate_ai_notes(diff, commit_summary, api_key):
             print("[INFO] Contacting Google Gemini API for synthesis...")
             client = genai.Client(api_key=api_key)
             prompt = f"""
-            You are a senior developer. Generate professional, high-signal release notes for the "Virtual Controller Manager".
+            You are a senior product manager. Generate professional, user-friendly release notes for the "Virtual Controller Manager".
             
             INPUT DATA:
-            1. GIT DIFF (The truth of what changed):
-            {diff[:5000]} # Reduced payload for stability
+            1. GIT DIFF (Technical changes):
+            {diff[:5000]}
             
-            2. COMMIT MESSAGES (The developer's stated intent):
+            2. COMMIT MESSAGES (Developer intent):
             {commit_summary}
             
-            RULES:
-            - Use these exact categories: 🚀 Features, 🐞 Bug Fixes, 🛠️ Refactors.
-            - Focus ONLY on user-facing application logic.
-            - Analyze the code diffs to explain "how" things were improved.
-            - Strip all mentions of CI/CD, Documentation, or internal build scripts.
-            - Format as a clean Markdown list.
-            - Return ONLY the categories and bullets. No intro or outro.
+            STRICT RULES FOR CONTENT:
+            - Use ONLY simple, non-technical language that a regular gamer/user would understand.
+            - NEVER mention code terms, method names (e.g., no 'check_local_binding'), or technical jargon (e.g., no 'instantiated', 'decoupled', 'architecture').
+            - Focus on the practical BENEFIT to the user (e.g., "You can now do X" or "Fixed a crash when Y").
+            - Categories: 🚀 Features, 🐞 Bug Fixes, 🛠️ Improvements (Use 'Improvements' instead of 'Refactors' for users).
+            - Format: Return ONLY the categories and bullet points. No intro or outro.
             """
             # Use gemini-flash-latest as discovered in list_models
             response = client.models.generate_content(
