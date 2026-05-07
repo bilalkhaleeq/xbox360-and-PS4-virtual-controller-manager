@@ -5,6 +5,7 @@ import keyboard
 import json
 import os
 
+#github action in practice, ignore this import
 # Set Appearance and Theme
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
